@@ -6,12 +6,7 @@ const AUTH = {
   clientId:     "4d3079c9-3d7d-4745-b1fc-6660b3ce4328",
   authorizeUrl: "https://login.microsoftonline.com/8cc21f62-9336-49b9-b462-1e693eee1cde/oauth2/v2.0/authorize",
   tokenUrl:     "https://login.microsoftonline.com/8cc21f62-9336-49b9-b462-1e693eee1cde/oauth2/v2.0/token",
-  // Delegated scopes matching the app registration requiredResourceAccess
-  scope: [
-    "822f7873-1b52-48f2-8f56-9458c3fac264/b8f6353f-252d-497d-993a-8236b41b135b",
-    "3e710f56-38f6-42a3-b32a-293205a5903c/5d7e758a-fd18-4485-9161-b5827862db05",
-    "openid profile offline_access",
-  ].join(" "),
+  scope: "https://api.powerplatform.com/.default openid profile offline_access",
   get redirectUri() { return window.location.origin; },
 };
 
@@ -359,3 +354,4 @@ function MsIcon() {
     </svg>
   );
 }
+
