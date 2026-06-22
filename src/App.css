@@ -197,3 +197,49 @@ body {
   .message-row { max-width: 90%; }
   .chat-header h2 { font-size: 0.9rem; }
 }
+
+/* ── Login screen (replaces token screen) ── */
+.login-screen {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100dvh;
+  background: radial-gradient(ellipse at 60% 20%, #1e1b4b 0%, var(--bg) 60%);
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 40px; width: 100%; max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.1);
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+}
+.login-card-header { text-align: center; }
+.login-card-header h1 {
+  font-size: 1.6rem; font-weight: 700; margin: 14px 0 8px;
+  background: linear-gradient(135deg, var(--brand-start), var(--brand-end));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.login-card-header p { color: var(--text-muted); font-size: 0.9rem; }
+.signin-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; justify-content: center;
+  background: white; color: #1a1a1a;
+  border: none; border-radius: var(--radius);
+  padding: 13px 20px; font-size: 0.95rem; font-weight: 600;
+  cursor: pointer; transition: background 0.2s, transform 0.15s;
+}
+.signin-btn:hover { background: #f0f0f0; transform: translateY(-1px); }
+.login-hint { color: var(--text-muted); font-size: 0.78rem; text-align: center; }
+
+/* ── Sign out button ── */
+.signout-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
+  color: #f87171; border-radius: 10px; padding: 8px 14px;
+  font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.2s;
+}
+.signout-btn:hover { background: rgba(239,68,68,0.2); }
+
+/* ── Loading screen ── */
+.loading-screen {
+  display: flex; align-items: center; justify-content: center; height: 100dvh;
+}
+.spinner.large { width: 32px; height: 32px; border-width: 3px; }
