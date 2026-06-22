@@ -257,12 +257,15 @@ export default function App() {
           const convRes = await fetch(BOT_BASE + "/conversations?api-version=" + API_VER, {
             method:  "POST",
             headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+            body: JSON.stringify({ locale: "en-US" }),
           });
+          const convText = await convRes.text();
           if (!convRes.ok) {
-            const txt = await convRes.text();
-            throw new Error("Bot error " + convRes.status + ": " + txt);
+            let detail = convText;
+            try { detail = JSON.stringify(JSON.parse(convText), null, 2); } catch (_) {}
+            throw new Error("Bot " + convRes.status + " — " + detail);
           }
-          const convData = await convRes.json();
+          const convData = JSON.parse(convText);
 
           sessionStorage.setItem(K_TOKEN, accessToken);
           sessionStorage.setItem(K_CONV,  convData.conversationId);
