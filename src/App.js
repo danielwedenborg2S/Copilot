@@ -6,7 +6,7 @@ const AUTH = {
   clientId:     "4d3079c9-3d7d-4745-b1fc-6660b3ce4328",
   authorizeUrl: "https://login.microsoftonline.com/8cc21f62-9336-49b9-b462-1e693eee1cde/oauth2/v2.0/authorize",
   tokenUrl:     "https://login.microsoftonline.com/8cc21f62-9336-49b9-b462-1e693eee1cde/oauth2/v2.0/token",
-  scope: "https://api.powerplatform.com/.default openid profile offline_access",
+  scope:        "https://api.powerplatform.com/.default openid profile offline_access",
   get redirectUri() { return window.location.origin; },
 };
 
@@ -26,11 +26,11 @@ async function sha256Base64url(str) {
   return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-/* ── Session storage keys ── */
 const K_VERIFIER = "pkce_verifier";
 const K_STATE    = "pkce_state";
 const K_TOKEN    = "chat_token";
 const K_CONV     = "chat_conv";
+const K_STREAM   = "chat_stream";
 
 /* ─────────────────────────
    Login screen
@@ -42,16 +42,11 @@ function LoginScreen({ error }) {
     const state     = randomBase64url(16);
     sessionStorage.setItem(K_VERIFIER, verifier);
     sessionStorage.setItem(K_STATE,    state);
-
     const params = new URLSearchParams({
-      client_id:             AUTH.clientId,
-      response_type:         "code",
-      redirect_uri:          AUTH.redirectUri,
-      scope:                 AUTH.scope,
-      code_challenge:        challenge,
-      code_challenge_method: "S256",
-      state,
-      prompt:                "select_account",
+      client_id: AUTH.clientId, response_type: "code",
+      redirect_uri: AUTH.redirectUri, scope: AUTH.scope,
+      code_challenge: challenge, code_challenge_method: "S256",
+      state, prompt: "select_account",
     });
     window.location.href = AUTH.authorizeUrl + "?" + params.toString();
   };
@@ -68,9 +63,7 @@ function LoginScreen({ error }) {
         <button className="signin-btn" onClick={handleLogin}>
           <MsIcon /> Sign in with Microsoft
         </button>
-        <p className="login-hint">
-          Uses OAuth 2.0 + PKCE — your credentials never touch this app.
-        </p>
+        <p className="login-hint">Uses OAuth 2.0 + PKCE — your credentials never touch this app.</p>
       </div>
     </div>
   );
@@ -79,52 +72,61 @@ function LoginScreen({ error }) {
 /* ─────────────────────────
    Chat screen
 ───────────────────────── */
-function ChatScreen({ token, conversationId, onSignOut }) {
+function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
-  const watermarkRef = useRef(null);
-  const pollingRef   = useRef(null);
-  const messagesEnd  = useRef(null);
+  const [status,   setStatus]   = useState("connecting");
+  const wsRef       = useRef(null);
+  const messagesEnd = useRef(null);
 
   const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Trigger bot welcome message
+  /* ── WebSocket connection ── */
+  const connectWs = useCallback(() => {
+    if (!streamUrl) { setStatus("online"); return; }
+    const ws = new WebSocket(streamUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => setStatus("online");
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const bots = (data.activities || []).filter(
+          a => a.type === "message" && a.from?.role !== "user"
+        );
+        if (bots.length) {
+          setMessages(prev => [
+            ...prev.filter(m => !m.typing),
+            ...bots.map(a => ({
+              id:   a.id || Math.random().toString(36),
+              role: "bot",
+              text: a.text || "",
+              time: now(),
+            })),
+          ]);
+          setSending(false);
+        }
+      } catch (_) {}
+    };
+
+    ws.onerror = () => setStatus("reconnecting");
+    ws.onclose = () => {
+      setStatus("reconnecting");
+      // Reconnect after 3s
+      setTimeout(connectWs, 3000);
+    };
+  }, [streamUrl]); // eslint-disable-line
+
   useEffect(() => {
-    fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
-      method: "POST",
-      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "event", name: "startConversation", from: { id: "user", role: "user" } }),
-    }).catch(() => {});
-  }, [token, conversationId]); // eslint-disable-line
+    connectWs();
+    return () => { wsRef.current?.close(); };
+  }, [connectWs]);
 
-  const poll = useCallback(async () => {
-    try {
-      const qs  = watermarkRef.current != null ? "&watermark=" + watermarkRef.current : "";
-      const res = await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER + qs, {
-        headers: { Authorization: "Bearer " + token },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.watermark != null) watermarkRef.current = data.watermark;
-      const bots = (data.activities || []).filter(a => a.type === "message" && a.from?.role !== "user");
-      if (bots.length) {
-        setMessages(prev => [
-          ...prev.filter(m => !m.typing),
-          ...bots.map(a => ({ id: a.id || Math.random().toString(36), role: "bot", text: a.text || "", time: now() })),
-        ]);
-        setSending(false);
-      }
-    } catch (_) {}
-  }, [token, conversationId]); // eslint-disable-line
-
-  useEffect(() => {
-    pollingRef.current = setInterval(poll, 1500);
-    return () => clearInterval(pollingRef.current);
-  }, [poll]);
-
+  /* ── Send message ── */
   const handleSend = async (e) => {
     e.preventDefault();
     const text = input.trim();
@@ -137,16 +139,27 @@ function ChatScreen({ token, conversationId, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
-        method: "POST",
+      const res = await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
+        method:  "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "message", text, from: { id: "user", role: "user" } }),
+        body: JSON.stringify({
+          type: "message", text,
+          from: { id: "user", role: "user" },
+          locale: "en-US",
+        }),
       });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err);
+      }
     } catch (_) {
       setSending(false);
       setMessages(prev => prev.filter(m => !m.typing));
     }
   };
+
+  const statusLabel = status === "online" ? "Online" : status === "reconnecting" ? "Reconnecting…" : "Connecting…";
+  const statusClass = status === "online" ? "status-online" : "status-warn";
 
   return (
     <div className="chat-screen">
@@ -155,7 +168,8 @@ function ChatScreen({ token, conversationId, onSignOut }) {
           <div className="header-avatar"><CopilotIcon size={20} /></div>
           <div>
             <h2>Copilot Agent</h2>
-            <span className="status-dot" /><span className="status-text">Online</span>
+            <span className={"status-dot " + statusClass} />
+            <span className={"status-text " + statusClass}>{statusLabel}</span>
           </div>
         </div>
         <button className="signout-btn" onClick={onSignOut}><SignOutIcon /> Sign out</button>
@@ -214,6 +228,7 @@ export default function App() {
   const [authError,      setAuthError]      = useState("");
   const [token,          setToken]          = useState("");
   const [conversationId, setConversationId] = useState("");
+  const [streamUrl,      setStreamUrl]      = useState("");
 
   useEffect(() => {
     (async () => {
@@ -237,32 +252,27 @@ export default function App() {
         window.history.replaceState({}, "", window.location.pathname);
 
         if (state !== savedState) {
-          setAuthError("State mismatch — possible CSRF. Please try again.");
+          setAuthError("State mismatch — please try again.");
           setScreen("login");
           return;
         }
 
         try {
           /* Exchange code for tokens */
-          const body = new URLSearchParams({
-            client_id:     AUTH.clientId,
-            grant_type:    "authorization_code",
-            code,
-            redirect_uri:  AUTH.redirectUri,
-            scope:         AUTH.scope,
-            code_verifier: codeVerifier,
-          });
           const tokenRes  = await fetch(AUTH.tokenUrl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body,
+            body: new URLSearchParams({
+              client_id: AUTH.clientId, grant_type: "authorization_code",
+              code, redirect_uri: AUTH.redirectUri,
+              scope: AUTH.scope, code_verifier: codeVerifier,
+            }),
           });
           const tokenData = await tokenRes.json();
           if (tokenData.error) throw new Error(tokenData.error_description || tokenData.error);
-
           const accessToken = tokenData.access_token;
 
-          /* Start bot conversation — capture final URL after any redirects */
+          /* Start bot conversation */
           const convRes = await fetch(BOT_BASE + "/conversations?api-version=" + API_VER, {
             method:  "POST",
             headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
@@ -274,16 +284,18 @@ export default function App() {
             try { detail = JSON.stringify(JSON.parse(convText), null, 2); } catch (_) {}
             throw new Error("Bot " + convRes.status + " — " + detail);
           }
-          const convData = JSON.parse(convText);
+          const conv = JSON.parse(convText);
 
-          // The conversation response returns a Direct Line token — use THIS for all
-          // subsequent activity calls, not the original OAuth bearer token.
-          const dlToken = convData.token || accessToken;
+          // Use Direct Line token from response (if present) for subsequent calls
+          const dlToken  = conv.token || accessToken;
+          const wsUrl    = conv.streamUrl || "";
 
-          sessionStorage.setItem(K_TOKEN, dlToken);
-          sessionStorage.setItem(K_CONV,  convData.conversationId);
+          sessionStorage.setItem(K_TOKEN,  dlToken);
+          sessionStorage.setItem(K_CONV,   conv.conversationId);
+          sessionStorage.setItem(K_STREAM, wsUrl);
           setToken(dlToken);
-          setConversationId(convData.conversationId);
+          setConversationId(conv.conversationId);
+          setStreamUrl(wsUrl);
           setScreen("chat");
         } catch (err) {
           setAuthError(err.message);
@@ -293,11 +305,13 @@ export default function App() {
       }
 
       /* Resume existing session */
-      const savedToken = sessionStorage.getItem(K_TOKEN);
-      const savedConv  = sessionStorage.getItem(K_CONV);
+      const savedToken  = sessionStorage.getItem(K_TOKEN);
+      const savedConv   = sessionStorage.getItem(K_CONV);
+      const savedStream = sessionStorage.getItem(K_STREAM);
       if (savedToken && savedConv) {
         setToken(savedToken);
         setConversationId(savedConv);
+        setStreamUrl(savedStream || "");
         setScreen("chat");
         return;
       }
@@ -307,21 +321,17 @@ export default function App() {
   }, []);
 
   const handleSignOut = () => {
-    sessionStorage.removeItem(K_TOKEN);
-    sessionStorage.removeItem(K_CONV);
-    setToken("");
-    setConversationId("");
+    [K_TOKEN, K_CONV, K_STREAM].forEach(k => sessionStorage.removeItem(k));
+    setToken(""); setConversationId(""); setStreamUrl("");
     setScreen("login");
   };
 
   if (screen === "loading") return <div className="loading-screen"><span className="spinner large" /></div>;
-  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} onSignOut={handleSignOut} />;
+  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} streamUrl={streamUrl} onSignOut={handleSignOut} />;
   return <LoginScreen error={authError} />;
 }
 
-/* ─────────────────────────
-   SVG icons
-───────────────────────── */
+/* ── SVG icons ── */
 function CopilotIcon({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
@@ -370,4 +380,3 @@ function MsIcon() {
     </svg>
   );
 }
-
