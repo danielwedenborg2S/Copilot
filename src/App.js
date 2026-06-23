@@ -90,61 +90,32 @@ function LoginScreen({ error }) {
 /* ─────────────────────────
    Chat screen
 ───────────────────────── */
-function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
+function ChatScreen({ token, conversationId, onSignOut }) {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
-  const [status,   setStatus]   = useState("connecting");
-  const wsRef       = useRef(null);
   const messagesEnd = useRef(null);
 
   const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  /* ── WebSocket connection ── */
-  const connectWs = useCallback(() => {
-    if (!streamUrl) { setStatus("online"); return; }
-    const ws = new WebSocket(streamUrl);
-    wsRef.current = ws;
+  const appendBotMessages = (activities) => {
+    const bots = (activities || []).filter(a => a.type === "message" && a.from?.role !== "user");
+    if (bots.length) {
+      setMessages(prev => [
+        ...prev.filter(m => !m.typing),
+        ...bots.map(a => ({
+          id:   a.id || Math.random().toString(36),
+          role: "bot",
+          text: a.text || "",
+          time: now(),
+        })),
+      ]);
+    }
+  };
 
-    ws.onopen = () => setStatus("online");
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const bots = (data.activities || []).filter(
-          a => a.type === "message" && a.from?.role !== "user"
-        );
-        if (bots.length) {
-          setMessages(prev => [
-            ...prev.filter(m => !m.typing),
-            ...bots.map(a => ({
-              id:   a.id || Math.random().toString(36),
-              role: "bot",
-              text: a.text || "",
-              time: now(),
-            })),
-          ]);
-          setSending(false);
-        }
-      } catch (_) {}
-    };
-
-    ws.onerror = () => setStatus("reconnecting");
-    ws.onclose = () => {
-      setStatus("reconnecting");
-      // Reconnect after 3s
-      setTimeout(connectWs, 3000);
-    };
-  }, [streamUrl]); // eslint-disable-line
-
-  useEffect(() => {
-    connectWs();
-    return () => { wsRef.current?.close(); };
-  }, [connectWs]);
-
-  /* ── Send message ── */
+  /* ── Send message — response is synchronous in the activities array ── */
   const handleSend = async (e) => {
     e.preventDefault();
     const text = input.trim();
@@ -157,8 +128,9 @@ function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      const url = activitiesUrl(streamUrl, conversationId);
-      console.log("POST activities →", url);
+      // No api-version on activities — Copilot Studio REST protocol returns
+      // bot responses synchronously in the response body {activities: [...], action: ...}
+      const url = BOT_BASE + "/conversations/" + conversationId + "/activities";
       const res = await fetch(url, {
         method:  "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
@@ -168,18 +140,17 @@ function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
           locale: "en-US",
         }),
       });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err);
-      }
-    } catch (_) {
+      const data = await res.json();
+      console.log("Activities response:", data);
+      if (!res.ok) throw new Error(JSON.stringify(data));
+      appendBotMessages(data.activities);
+    } catch (err) {
+      console.error("Send error:", err);
+    } finally {
       setSending(false);
       setMessages(prev => prev.filter(m => !m.typing));
     }
   };
-
-  const statusLabel = status === "online" ? "Online" : status === "reconnecting" ? "Reconnecting…" : "Connecting…";
-  const statusClass = status === "online" ? "status-online" : "status-warn";
 
   return (
     <div className="chat-screen">
@@ -188,8 +159,8 @@ function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
           <div className="header-avatar"><CopilotIcon size={20} /></div>
           <div>
             <h2>Copilot Agent</h2>
-            <span className={"status-dot " + statusClass} />
-            <span className={"status-text " + statusClass}>{statusLabel}</span>
+            <span className="status-dot status-online" />
+            <span className="status-text status-online">Online</span>
           </div>
         </div>
         <button className="signout-btn" onClick={onSignOut}><SignOutIcon /> Sign out</button>
@@ -350,7 +321,7 @@ export default function App() {
   };
 
   if (screen === "loading") return <div className="loading-screen"><span className="spinner large" /></div>;
-  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} streamUrl={streamUrl} onSignOut={handleSignOut} />;
+  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} onSignOut={handleSignOut} />;
   return <LoginScreen error={authError} />;
 }
 
