@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 
 /* ── Auth config ── */
@@ -219,7 +219,6 @@ export default function App() {
   const [authError,      setAuthError]      = useState("");
   const [token,          setToken]          = useState("");
   const [conversationId, setConversationId] = useState("");
-  const [streamUrl,      setStreamUrl]      = useState("");
 
   useEffect(() => {
     (async () => {
@@ -289,7 +288,6 @@ export default function App() {
           sessionStorage.setItem(K_STREAM, wsUrl);
           setToken(dlToken);
           setConversationId(conv.conversationId);
-          setStreamUrl(wsUrl);
           setScreen("chat");
         } catch (err) {
           setAuthError(err.message);
