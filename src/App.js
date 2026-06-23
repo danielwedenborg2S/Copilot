@@ -14,6 +14,24 @@ const AUTH = {
 const BOT_BASE = "https://default8cc21f62933649b9b4621e693eee1c.de.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/cr916_agentFo7wC6";
 const API_VER  = "2022-03-01-preview";
 
+/* Derive the activities REST URL from the WebSocket streamUrl.
+   streamUrl: wss://{host}/{path}/conversations/{id}/stream?token=...
+   →          https://{host}/{path}/conversations/{id}/activities?api-version=... */
+function activitiesUrl(streamUrl, conversationId) {
+  if (streamUrl) {
+    try {
+      const http = streamUrl
+        .replace(/^wss:\/\//i, "https://")
+        .replace(/^ws:\/\//i,  "http://")
+        .split("?")[0]                    // drop query string
+        .replace(/\/stream$/i, "");       // drop /stream suffix
+      // http is now the conversation base path
+      return http + "/activities?api-version=" + API_VER;
+    } catch (_) {}
+  }
+  return BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER;
+}
+
 /* ── PKCE helpers ── */
 function randomBase64url(len = 48) {
   const buf = new Uint8Array(len);
@@ -139,7 +157,9 @@ function ChatScreen({ token, conversationId, streamUrl, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      const res = await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
+      const url = activitiesUrl(streamUrl, conversationId);
+      console.log("POST activities →", url);
+      const res = await fetch(url, {
         method:  "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -285,6 +305,9 @@ export default function App() {
             throw new Error("Bot " + convRes.status + " — " + detail);
           }
           const conv = JSON.parse(convText);
+          console.log("Conversation response:", conv);
+          console.log("streamUrl:", conv.streamUrl);
+          console.log("activitiesUrl will be:", activitiesUrl(conv.streamUrl || "", conv.conversationId));
 
           // Use Direct Line token from response (if present) for subsequent calls
           const dlToken  = conv.token || accessToken;
