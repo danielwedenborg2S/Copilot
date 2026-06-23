@@ -79,7 +79,7 @@ function LoginScreen({ error }) {
 /* ─────────────────────────
    Chat screen
 ───────────────────────── */
-function ChatScreen({ token, conversationId, onSignOut }) {
+function ChatScreen({ token, conversationId, convBase, onSignOut }) {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
@@ -94,7 +94,7 @@ function ChatScreen({ token, conversationId, onSignOut }) {
   const poll = useCallback(async () => {
     try {
       const qs  = watermarkRef.current != null ? "&watermark=" + watermarkRef.current : "";
-      const res = await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER + qs, {
+      const res = await fetch(convBase + "/conversations/" + conversationId + "/activities?api-version=" + API_VER + qs, {
         headers: { Authorization: "Bearer " + token },
       });
       if (!res.ok) return;
@@ -128,7 +128,7 @@ function ChatScreen({ token, conversationId, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
+      await fetch(convBase + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
         method: "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
         body: JSON.stringify({ type: "message", text, from: { id: "user", role: "user" } }),
@@ -205,6 +205,7 @@ export default function App() {
   const [authError,      setAuthError]      = useState("");
   const [token,          setToken]          = useState("");
   const [conversationId, setConversationId] = useState("");
+  const [convBase,       setConvBase]       = useState("");
 
   useEffect(() => {
     (async () => {
@@ -253,7 +254,7 @@ export default function App() {
 
           const accessToken = tokenData.access_token;
 
-          /* Start bot conversation */
+          /* Start bot conversation — capture final URL after any redirects */
           const convRes = await fetch(BOT_BASE + "/conversations?api-version=" + API_VER, {
             method:  "POST",
             headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
@@ -267,10 +268,16 @@ export default function App() {
           }
           const convData = JSON.parse(convText);
 
-          sessionStorage.setItem(K_TOKEN, accessToken);
-          sessionStorage.setItem(K_CONV,  convData.conversationId);
+          // Use the final URL after redirects as the base for all subsequent calls.
+          // Copilot Studio redirects to a tenant/region-specific path on conversation start.
+          const convBase = convRes.url.split("/conversations")[0];
+
+          sessionStorage.setItem(K_TOKEN,      accessToken);
+          sessionStorage.setItem(K_CONV,       convData.conversationId);
+          sessionStorage.setItem("chat_base",  convBase);
           setToken(accessToken);
           setConversationId(convData.conversationId);
+          setConvBase(convBase);
           setScreen("chat");
         } catch (err) {
           setAuthError(err.message);
@@ -282,9 +289,11 @@ export default function App() {
       /* Resume existing session */
       const savedToken = sessionStorage.getItem(K_TOKEN);
       const savedConv  = sessionStorage.getItem(K_CONV);
-      if (savedToken && savedConv) {
+      const savedBase  = sessionStorage.getItem("chat_base");
+      if (savedToken && savedConv && savedBase) {
         setToken(savedToken);
         setConversationId(savedConv);
+        setConvBase(savedBase);
         setScreen("chat");
         return;
       }
@@ -296,13 +305,15 @@ export default function App() {
   const handleSignOut = () => {
     sessionStorage.removeItem(K_TOKEN);
     sessionStorage.removeItem(K_CONV);
+    sessionStorage.removeItem("chat_base");
     setToken("");
     setConversationId("");
+    setConvBase("");
     setScreen("login");
   };
 
   if (screen === "loading") return <div className="loading-screen"><span className="spinner large" /></div>;
-  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} onSignOut={handleSignOut} />;
+  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} convBase={convBase} onSignOut={handleSignOut} />;
   return <LoginScreen error={authError} />;
 }
 
