@@ -128,9 +128,9 @@ function ChatScreen({ token, conversationId, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      // No api-version on activities — Copilot Studio REST protocol returns
-      // bot responses synchronously in the response body {activities: [...], action: ...}
-      const url = BOT_BASE + "/conversations/" + conversationId + "/activities";
+      // Copilot Studio turn-based API: POST to the conversation (not /activities)
+      // Response contains bot replies synchronously in {activities: [...], action: "waiting"|"end"}
+      const url = BOT_BASE + "/conversations/" + conversationId + "?api-version=" + API_VER;
       const res = await fetch(url, {
         method:  "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
