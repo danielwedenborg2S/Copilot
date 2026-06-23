@@ -79,7 +79,7 @@ function LoginScreen({ error }) {
 /* ─────────────────────────
    Chat screen
 ───────────────────────── */
-function ChatScreen({ token, conversationId, convBase, onSignOut }) {
+function ChatScreen({ token, conversationId, onSignOut }) {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
@@ -94,7 +94,7 @@ function ChatScreen({ token, conversationId, convBase, onSignOut }) {
   const poll = useCallback(async () => {
     try {
       const qs  = watermarkRef.current != null ? "&watermark=" + watermarkRef.current : "";
-      const res = await fetch(convBase + "/conversations/" + conversationId + "/activities?api-version=" + API_VER + qs, {
+      const res = await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER + qs, {
         headers: { Authorization: "Bearer " + token },
       });
       if (!res.ok) return;
@@ -128,7 +128,7 @@ function ChatScreen({ token, conversationId, convBase, onSignOut }) {
       { id: "typing", role: "bot", typing: true, time: "" },
     ]);
     try {
-      await fetch(convBase + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
+      await fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
         method: "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
         body: JSON.stringify({ type: "message", text, from: { id: "user", role: "user" } }),
@@ -205,7 +205,6 @@ export default function App() {
   const [authError,      setAuthError]      = useState("");
   const [token,          setToken]          = useState("");
   const [conversationId, setConversationId] = useState("");
-  const [convBase,       setConvBase]       = useState("");
 
   useEffect(() => {
     (async () => {
@@ -268,16 +267,12 @@ export default function App() {
           }
           const convData = JSON.parse(convText);
 
-          // Use the final URL after redirects as the base for all subsequent calls.
-          // Copilot Studio redirects to a tenant/region-specific path on conversation start.
-          const convBase = convRes.url.split("/conversations")[0];
-
-          sessionStorage.setItem(K_TOKEN,      accessToken);
-          sessionStorage.setItem(K_CONV,       convData.conversationId);
-          sessionStorage.setItem("chat_base",  convBase);
+          // Use the redirected base URL from conversation start for the conversation itself,
+          // but activities always route through the original BOT_BASE.
+          sessionStorage.setItem(K_TOKEN, accessToken);
+          sessionStorage.setItem(K_CONV,  convData.conversationId);
           setToken(accessToken);
           setConversationId(convData.conversationId);
-          setConvBase(convBase);
           setScreen("chat");
         } catch (err) {
           setAuthError(err.message);
@@ -289,11 +284,9 @@ export default function App() {
       /* Resume existing session */
       const savedToken = sessionStorage.getItem(K_TOKEN);
       const savedConv  = sessionStorage.getItem(K_CONV);
-      const savedBase  = sessionStorage.getItem("chat_base");
-      if (savedToken && savedConv && savedBase) {
+      if (savedToken && savedConv) {
         setToken(savedToken);
         setConversationId(savedConv);
-        setConvBase(savedBase);
         setScreen("chat");
         return;
       }
@@ -305,15 +298,13 @@ export default function App() {
   const handleSignOut = () => {
     sessionStorage.removeItem(K_TOKEN);
     sessionStorage.removeItem(K_CONV);
-    sessionStorage.removeItem("chat_base");
     setToken("");
     setConversationId("");
-    setConvBase("");
     setScreen("login");
   };
 
   if (screen === "loading") return <div className="loading-screen"><span className="spinner large" /></div>;
-  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} convBase={convBase} onSignOut={handleSignOut} />;
+  if (screen === "chat")    return <ChatScreen token={token} conversationId={conversationId} onSignOut={handleSignOut} />;
   return <LoginScreen error={authError} />;
 }
 
