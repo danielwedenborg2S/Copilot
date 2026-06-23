@@ -91,6 +91,15 @@ function ChatScreen({ token, conversationId, onSignOut }) {
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  // Trigger bot welcome message
+  useEffect(() => {
+    fetch(BOT_BASE + "/conversations/" + conversationId + "/activities?api-version=" + API_VER, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "event", name: "startConversation", from: { id: "user", role: "user" } }),
+    }).catch(() => {});
+  }, [token, conversationId]); // eslint-disable-line
+
   const poll = useCallback(async () => {
     try {
       const qs  = watermarkRef.current != null ? "&watermark=" + watermarkRef.current : "";
@@ -267,11 +276,13 @@ export default function App() {
           }
           const convData = JSON.parse(convText);
 
-          // Use the redirected base URL from conversation start for the conversation itself,
-          // but activities always route through the original BOT_BASE.
-          sessionStorage.setItem(K_TOKEN, accessToken);
+          // The conversation response returns a Direct Line token — use THIS for all
+          // subsequent activity calls, not the original OAuth bearer token.
+          const dlToken = convData.token || accessToken;
+
+          sessionStorage.setItem(K_TOKEN, dlToken);
           sessionStorage.setItem(K_CONV,  convData.conversationId);
-          setToken(accessToken);
+          setToken(dlToken);
           setConversationId(convData.conversationId);
           setScreen("chat");
         } catch (err) {
